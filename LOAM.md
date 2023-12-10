@@ -34,6 +34,9 @@ cd -
 # execute loam
 
 ```
+# exec
+roslaunch loam_velodyne loam_velodyne.launch
+
 # send pcap
 roslaunch velodyne_pointcloud VLP16_points.launch pcap:="$HOME/data/test.pcap"
 
@@ -102,5 +105,18 @@ opt -analyze -dot-callgraph )
 
 ```
 https://github.com/peng225/class_dep
+```
+
+# ref2
+
+```
+https://github.com/laboshinl/loam_velodyne/issues/157
+
+ケース1) Rvizのディスプレイタップで[グローバルオプション]-[固定フレーム]を変更します。
+「camera_init」を「//camera_init」に変更します。ただし、ケース 1) を試したときは、必ず試してください。
+ケース2) コードを変更します。
+loam コードで「/」を検索します。コードを変更する必要があります。(LaserMapping.cpp、LaserOdomertyr.cpp、TransformMaintenance.cpp)
+例) LaserMapping.cpp - LaserMapping::LaserMapping(const float& scanPeriod, const size_t& maxIterations)
+odomAftMapped.header .frame_id = "/camera_init"; --> odomAftMapped.header.frame_id = "camera_init";
 ```
 
