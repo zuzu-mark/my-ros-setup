@@ -1,0 +1,549 @@
+diff --git a/.gitignore b/.gitignore
+index a78dd20..1e2c443 100755
+--- a/.gitignore
++++ b/.gitignore
+@@ -10,3 +10,5 @@ cmake_install.cmake
+ Makefile
+ .idea
+ .vs
++
++spdlog/
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+old mode 100644
+new mode 100755
+index 7f6b833..f8d8b0f
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,6 +1,9 @@
+ cmake_minimum_required(VERSION 3.1.3)
+ project(loam_velodyne)
+ 
++#set(CMAKE_C_COMPILER "/usr/bin/clang" CACHE string "clang compiler" FORCE)
++#set(CMAKE_CXX_COMPILER "/usr/bin/clang++" CACHE string "clang++ compiler" FORCE)
++
+ find_package(catkin REQUIRED COMPONENTS
+   geometry_msgs
+   nav_msgs
+@@ -27,6 +30,9 @@ catkin_package(
+   LIBRARIES loam
+ )
+ 
++
++
++
+ ## Compile as C++14, supported in ROS Kinetic and newer
+ # set_property(TARGET invz_player PROPERTY CXX_STANDARD 17)
+ set(CMAKE_CXX_STANDARD 14)
+@@ -37,8 +43,17 @@ add_definitions( -march=native )
+ 
+ add_subdirectory(src/lib)
+ 
++#add_compile_options( -S -emit-llvm)
+ add_executable(multiScanRegistration src/multi_scan_registration_node.cpp)
+ target_link_libraries(multiScanRegistration ${catkin_LIBRARIES} ${PCL_LIBRARIES} loam )
++###===
++#add_custom_command(TARGET multiScanRegistration PRE_BUILD COMMAND echo wanwan)
++#message(${CMAKE_CURRENT_SOURCE_DIR})
++#add_custom_command(TARGET multiScanRegistration PRE_BUILD 
++#	COMMAND clang++ -S -emit-llvm -I${EIGEN3_INCLUDE_DIR}
++#-I${PCL_INCLUDE_DIRS} -I${CMAKE_CURRENT_SOURCE_DIR}/include -I${catkin_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/src/multi_scan_registration_node.cpp -o - |
++#	opt -analyze -dot-callgraph )#--callgraph-dot-filename-prefix=test)
++###===
+ 
+ add_executable(laserOdometry src/laser_odometry_node.cpp)
+ target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} loam )
+@@ -63,7 +78,7 @@ if (CATKIN_ENABLE_TESTING)
+   add_rostest(${PROJECT_BINARY_DIR}/test/loam.test
+     DEPENDENCIES
+       ${PROJECT_NAME}_test_data
+-      multiScanRegistration
++	  multiScanRegistration
+       laserOdometry
+       laserMapping
+       transformMaintenance)
+diff --git a/LICENSE b/LICENSE
+old mode 100644
+new mode 100755
+diff --git a/README.md b/README.md
+old mode 100644
+new mode 100755
+diff --git a/capture.bmp b/capture.bmp
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/Angle.h b/include/loam_velodyne/Angle.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/BasicLaserMapping.h b/include/loam_velodyne/BasicLaserMapping.h
+old mode 100644
+new mode 100755
+index cf55efe..b5e8444
+--- a/include/loam_velodyne/BasicLaserMapping.h
++++ b/include/loam_velodyne/BasicLaserMapping.h
+@@ -40,6 +40,10 @@
+ #include <pcl/point_types.h>
+ #include <pcl/filters/voxel_grid.h>
+ 
++#include <ros/ros.h>
++#include "common.h"
++#include "spdlog/spdlog.h"
++
+ namespace loam
+ {
+ 
+@@ -127,6 +131,10 @@ private:
+    { return i + _laserCloudWidth * j + _laserCloudWidth * _laserCloudHeight * k; }
+ 
+ private:
++	std::shared_ptr<spdlog::logger> _logger;
++	void _InitLogger();
++   ros::Time _laserOdometryTimeRos;   ///< time of current last corner cloud
++
+    Time _laserOdometryTime;
+ 
+    float _scanPeriod;          ///< time per scan
+diff --git a/include/loam_velodyne/BasicLaserOdometry.h b/include/loam_velodyne/BasicLaserOdometry.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/BasicScanRegistration.h b/include/loam_velodyne/BasicScanRegistration.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/BasicTransformMaintenance.h b/include/loam_velodyne/BasicTransformMaintenance.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/CircularBuffer.h b/include/loam_velodyne/CircularBuffer.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/LaserMapping.h b/include/loam_velodyne/LaserMapping.h
+old mode 100644
+new mode 100755
+index 9ff4fd7..998b569
+--- a/include/loam_velodyne/LaserMapping.h
++++ b/include/loam_velodyne/LaserMapping.h
+@@ -45,6 +45,7 @@
+ #include <tf/transform_broadcaster.h>
+ 
+ 
++#include "spdlog/spdlog.h"
+ 
+ namespace loam
+ {
+@@ -111,6 +112,9 @@ protected:
+    void publishResult();
+ 
+ private:
++	std::shared_ptr<spdlog::logger> _logger;
++	void _InitLogger();
++
+    ros::Time _timeLaserCloudCornerLast;   ///< time of current last corner cloud
+    ros::Time _timeLaserCloudSurfLast;     ///< time of current last surface cloud
+    ros::Time _timeLaserCloudFullRes;      ///< time of current full resolution cloud
+diff --git a/include/loam_velodyne/LaserOdometry.h b/include/loam_velodyne/LaserOdometry.h
+old mode 100644
+new mode 100755
+index 7e4c6ec..06ec91b
+--- a/include/loam_velodyne/LaserOdometry.h
++++ b/include/loam_velodyne/LaserOdometry.h
+@@ -47,6 +47,8 @@
+ 
+ #include "BasicLaserOdometry.h"
+ 
++#include "spdlog/spdlog.h"
++
+ namespace loam
+ {
+ 
+@@ -120,6 +122,9 @@ namespace loam
+     void publishResult();
+ 
+   private:
++	std::shared_ptr<spdlog::logger> _logger;
++	void _InitLogger();
++
+     uint16_t _ioRatio;       ///< ratio of input to output frames
+ 
+     ros::Time _timeCornerPointsSharp;      ///< time of current sharp corner cloud
+diff --git a/include/loam_velodyne/MultiScanRegistration.h b/include/loam_velodyne/MultiScanRegistration.h
+old mode 100644
+new mode 100755
+index 6d2a5d2..459eeb5
+--- a/include/loam_velodyne/MultiScanRegistration.h
++++ b/include/loam_velodyne/MultiScanRegistration.h
+@@ -80,6 +80,7 @@ public:
+   int getRingForAngle(const float& angle);
+ 
+   /** Multi scan mapper for Velodyne VLP-16 according to data sheet. */
++  //static inline MultiScanMapper Velodyne_VLP_16() { return MultiScanMapper(-16, 15, 32); };
+   static inline MultiScanMapper Velodyne_VLP_16() { return MultiScanMapper(-15, 15, 16); };
+ 
+   /** Multi scan mapper for Velodyne HDL-32 according to data sheet. */
+diff --git a/include/loam_velodyne/ScanRegistration.h b/include/loam_velodyne/ScanRegistration.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/TransformMaintenance.h b/include/loam_velodyne/TransformMaintenance.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/Twist.h b/include/loam_velodyne/Twist.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/Vector3.h b/include/loam_velodyne/Vector3.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/common.h b/include/loam_velodyne/common.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/nanoflann_pcl.h b/include/loam_velodyne/nanoflann_pcl.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/time_utils.h b/include/loam_velodyne/time_utils.h
+old mode 100644
+new mode 100755
+diff --git a/launch/hector_loam_velodyne.launch b/launch/hector_loam_velodyne.launch
+old mode 100644
+new mode 100755
+diff --git a/launch/loam_velodyne.launch b/launch/loam_velodyne.launch
+old mode 100644
+new mode 100755
+index 642c4bb..dbda380
+--- a/launch/loam_velodyne.launch
++++ b/launch/loam_velodyne.launch
+@@ -1,13 +1,15 @@
+ <launch>
+ 
+-  <arg name="rviz" default="true" />
++  <arg name="rviz" default="false" />
+   <arg name="scanPeriod" default="0.1" />
+ 
+   <node pkg="loam_velodyne" type="multiScanRegistration" name="multiScanRegistration" output="screen">
+     <param name="lidar" value="VLP-16" /> <!-- options: VLP-16  HDL-32  HDL-64E -->
+     <param name="scanPeriod" value="$(arg scanPeriod)" />
+ 
+-    <remap from="/multi_scan_points" to="/velodyne_points" />
++   <remap from="/multi_scan_points" to="/velodyne_points" />
++
++    <remap from="/imu/data" to="/mavros/imu/data_raw" />
+   </node>
+ 
+   <node pkg="loam_velodyne" type="laserOdometry" name="laserOdometry" output="screen" respawn="true">
+@@ -25,4 +27,18 @@
+     <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find loam_velodyne)/rviz_cfg/loam_velodyne.rviz" />
+   </group>
+ 
++  <node pkg="pcl_ros" type="pointcloud_to_pcd" name="pointcloud_to_pcd" output="screen">
++         <remap from="input" to="/velodyne_cloud_registered"/>
++         <!-- prefix : set output folder path. without this, save pcd files in.ros folder. -->
++         <param name="prefix" value="/tmp/pcd/" />
++         <param name="binary" value="false" />
++         <param name="compressed" value="false" />
++   </node>
++  <node pkg="pcl_ros" type="pointcloud_to_pcd" name="pointcloud_to_pcd2" output="screen">
++         <remap from="input" to="/velodyne_points"/>
++         <!-- prefix : set output folder path. without this, save pcd files in.ros folder. -->
++         <param name="prefix" value="/tmp/pcd_velo/" />
++         <param name="binary" value="false" />
++         <param name="compressed" value="false" />
++   </node>
+ </launch>
+diff --git a/package.xml b/package.xml
+old mode 100644
+new mode 100755
+diff --git a/rviz_cfg/loam_velodyne.rviz b/rviz_cfg/loam_velodyne.rviz
+old mode 100644
+new mode 100755
+diff --git a/src/laser_mapping_node.cpp b/src/laser_mapping_node.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/laser_odometry_node.cpp b/src/laser_odometry_node.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/lib/BasicLaserMapping.cpp b/src/lib/BasicLaserMapping.cpp
+old mode 100644
+new mode 100755
+index 8011c72..f4d0f9b
+--- a/src/lib/BasicLaserMapping.cpp
++++ b/src/lib/BasicLaserMapping.cpp
+@@ -38,6 +38,12 @@
+ #include <Eigen/Eigenvalues>
+ #include <Eigen/QR>
+ 
++#include "spdlog/spdlog.h"
++#include "spdlog/sinks/basic_file_sink.h"
++
++#define OBJ_LOG_D(...) \
++	if(this->_logger!=nullptr) SPDLOG_LOGGER_CALL(_logger, spdlog::level::debug,__VA_ARGS__);
++
+ namespace loam
+ {
+ 
+@@ -48,6 +54,11 @@ using std::atan2;
+ using std::pow;
+ 
+ 
++  void BasicLaserMapping::_InitLogger(){
++	  this->_logger=spdlog::basic_logger_mt("logger_local2","Bmap.log");
++	  this->_logger->set_level(spdlog::level::debug);
++	  OBJ_LOG_D("{}",1);
++  }
+ BasicLaserMapping::BasicLaserMapping(const float& scanPeriod, const size_t& maxIterations) :
+    _scanPeriod(scanPeriod),
+    _stackFrameNum(1),
+@@ -76,6 +87,8 @@ BasicLaserMapping::BasicLaserMapping(const float& scanPeriod, const size_t& maxI
+    _laserCloudCornerFromMap(new pcl::PointCloud<pcl::PointXYZI>()),
+    _laserCloudSurfFromMap(new pcl::PointCloud<pcl::PointXYZI>())
+ {
++  _InitLogger();
++
+    // initialize frame counter
+    _frameCount = _stackFrameNum - 1;
+    _mapFrameCount = _mapFrameNum - 1;
+@@ -112,6 +125,17 @@ void BasicLaserMapping::transformAssociateToMap()
+    float sbcz = _transformSum.rot_z.sin();
+    float cbcz = _transformSum.rot_z.cos();
+ 
++#if 1
++	  OBJ_LOG_D("[{}.{}] [sum] roll: {}, pitch: {}, yaw: {}, ",
++_laserOdometryTimeRos.sec,
++_laserOdometryTimeRos.nsec,
++rad2deg(_transformSum.rot_z.rad()),
++rad2deg(-_transformSum.rot_x.rad()),
++rad2deg(-_transformSum.rot_y.rad())
++			  );
++
++#endif
++
+    float sblx = _transformBefMapped.rot_x.sin();
+    float cblx = _transformBefMapped.rot_x.cos();
+    float sbly = _transformBefMapped.rot_y.sin();
+@@ -119,6 +143,16 @@ void BasicLaserMapping::transformAssociateToMap()
+    float sblz = _transformBefMapped.rot_z.sin();
+    float cblz = _transformBefMapped.rot_z.cos();
+ 
++#if 1
++	  OBJ_LOG_D("[{}.{}] [bef] roll: {}, pitch: {}, yaw: {}, ",
++_laserOdometryTimeRos.sec,
++_laserOdometryTimeRos.nsec,
++rad2deg(_transformBefMapped.rot_z.rad()),
++rad2deg(-_transformBefMapped.rot_x.rad()),
++rad2deg(-_transformBefMapped.rot_y.rad())
++			  );
++#endif
++
+    float salx = _transformAftMapped.rot_x.sin();
+    float calx = _transformAftMapped.rot_x.cos();
+    float saly = _transformAftMapped.rot_y.sin();
+@@ -126,6 +160,16 @@ void BasicLaserMapping::transformAssociateToMap()
+    float salz = _transformAftMapped.rot_z.sin();
+    float calz = _transformAftMapped.rot_z.cos();
+ 
++#if 1
++	  OBJ_LOG_D("[{}.{}] [aft] roll: {}, pitch: {}, yaw: {}, ",
++_laserOdometryTimeRos.sec,
++_laserOdometryTimeRos.nsec,
++rad2deg(_transformAftMapped.rot_z.rad()),
++rad2deg(-_transformAftMapped.rot_x.rad()),
++rad2deg(-_transformAftMapped.rot_y.rad())
++			  );
++#endif
++
+    float srx = -sbcx * (salx*sblx + calx * cblx*salz*sblz + calx * calz*cblx*cblz)
+       - cbcx * sbcy*(calx*calz*(cbly*sblz - cblz * sblx*sbly)
+                      - calx * salz*(cbly*cblz + sblx * sbly*sblz) + cblx * salx*sbly)
+@@ -164,6 +208,16 @@ void BasicLaserMapping::transformAssociateToMap()
+    Vector3 v = _transformIncre.pos;
+    rotateZXY(v, _transformTobeMapped.rot_z, _transformTobeMapped.rot_x, _transformTobeMapped.rot_y);
+    _transformTobeMapped.pos = _transformAftMapped.pos - v;
++
++#if 1
++	  OBJ_LOG_D("[{}.{}] [tob] roll: {}, pitch: {}, yaw: {}, ",
++_laserOdometryTimeRos.sec,
++_laserOdometryTimeRos.nsec,
++rad2deg(_transformTobeMapped.rot_z.rad()),
++rad2deg(-_transformTobeMapped.rot_x.rad()),
++rad2deg(-_transformTobeMapped.rot_y.rad())
++			  );
++#endif
+ }
+ 
+ 
+@@ -273,6 +327,7 @@ bool BasicLaserMapping::process(Time const& laserOdometryTime)
+    }
+    _frameCount = 0;
+    _laserOdometryTime = laserOdometryTime;
++   _laserOdometryTimeRos = toROSTime(laserOdometryTime);
+ 
+    pcl::PointXYZI pointSel;
+ 
+@@ -922,6 +977,16 @@ void BasicLaserMapping::optimizeTransformTobeMapped()
+          break;
+    }
+ 
++#if 1
++	  OBJ_LOG_D("[{}.{}] [tb2] roll: {}, pitch: {}, yaw: {}, ",
++_laserOdometryTimeRos.sec,
++_laserOdometryTimeRos.nsec,
++rad2deg(_transformTobeMapped.rot_z.rad()),
++rad2deg(-_transformTobeMapped.rot_x.rad()),
++rad2deg(-_transformTobeMapped.rot_y.rad())
++			  );
++#endif
++
+    transformUpdate();
+ }
+ 
+diff --git a/src/lib/BasicLaserOdometry.cpp b/src/lib/BasicLaserOdometry.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/lib/BasicScanRegistration.cpp b/src/lib/BasicScanRegistration.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/lib/BasicTransformMaintenance.cpp b/src/lib/BasicTransformMaintenance.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/lib/CMakeLists.txt b/src/lib/CMakeLists.txt
+old mode 100644
+new mode 100755
+diff --git a/src/lib/LaserMapping.cpp b/src/lib/LaserMapping.cpp
+old mode 100644
+new mode 100755
+index 4d2ef00..0903f64
+--- a/src/lib/LaserMapping.cpp
++++ b/src/lib/LaserMapping.cpp
+@@ -33,6 +33,13 @@
+ #include "loam_velodyne/LaserMapping.h"
+ #include "loam_velodyne/common.h"
+ 
++#include "spdlog/spdlog.h"
++#include "spdlog/sinks/basic_file_sink.h"
++#include "math_utils.h"
++
++#define OBJ_LOG_D(...) \
++	if(this->_logger!=nullptr) SPDLOG_LOGGER_CALL(_logger, spdlog::level::debug,__VA_ARGS__);
++	
+ namespace loam
+ {
+ 
+@@ -47,12 +54,18 @@ LaserMapping::LaserMapping(const float& scanPeriod, const size_t& maxIterations)
+ }
+ 
+ 
++  void LaserMapping::_InitLogger(){
++	  this->_logger=spdlog::basic_logger_mt("logger_local","map.log");
++	  this->_logger->set_level(spdlog::level::debug);
++	  OBJ_LOG_D("{}",1);
++  }
+ bool LaserMapping::setup(ros::NodeHandle& node, ros::NodeHandle& privateNode)
+ {
+    // fetch laser mapping params
+    float fParam;
+    int iParam;
+ 
++  _InitLogger();
+    if (privateNode.getParam("scanPeriod", fParam))
+    {
+       if (fParam <= 0)
+@@ -294,14 +307,33 @@ void LaserMapping::publishResult()
+    _odomAftMapped.pose.pose.position.x = transformAftMapped().pos.x();
+    _odomAftMapped.pose.pose.position.y = transformAftMapped().pos.y();
+    _odomAftMapped.pose.pose.position.z = transformAftMapped().pos.z();
++
++	  OBJ_LOG_D("[{}.{}] [after] roll: {}, pitch: {}, yaw: {}, ",
++_timeLaserOdometry.sec,
++_timeLaserOdometry.nsec,
++rad2deg(transformAftMapped().rot_z.rad()),
++rad2deg(-transformAftMapped().rot_x.rad()),
++rad2deg(-transformAftMapped().rot_y.rad())
++			  );
+    _odomAftMapped.twist.twist.angular.x = transformBefMapped().rot_x.rad();
+    _odomAftMapped.twist.twist.angular.y = transformBefMapped().rot_y.rad();
+    _odomAftMapped.twist.twist.angular.z = transformBefMapped().rot_z.rad();
++
++	  OBJ_LOG_D("[{}.{}] [before] roll: {}, pitch: {}, yaw: {}, ",
++_timeLaserOdometry.sec,
++_timeLaserOdometry.nsec,
++rad2deg(transformAftMapped().rot_z.rad()),
++rad2deg(-transformAftMapped().rot_x.rad()),
++rad2deg(-transformAftMapped().rot_y.rad())
++			  );
++
+    _odomAftMapped.twist.twist.linear.x = transformBefMapped().pos.x();
+    _odomAftMapped.twist.twist.linear.y = transformBefMapped().pos.y();
+    _odomAftMapped.twist.twist.linear.z = transformBefMapped().pos.z();
+    _pubOdomAftMapped.publish(_odomAftMapped);
+ 
++
++
+    _aftMappedTrans.stamp_ = _timeLaserOdometry;
+    _aftMappedTrans.setRotation(tf::Quaternion(-geoQuat.y, -geoQuat.z, geoQuat.x, geoQuat.w));
+    _aftMappedTrans.setOrigin(tf::Vector3(transformAftMapped().pos.x(),
+diff --git a/src/lib/LaserOdometry.cpp b/src/lib/LaserOdometry.cpp
+old mode 100644
+new mode 100755
+index d8ee0eb..2d80bbd
+--- a/src/lib/LaserOdometry.cpp
++++ b/src/lib/LaserOdometry.cpp
+@@ -36,6 +36,12 @@
+ #include "loam_velodyne/common.h"
+ #include "math_utils.h"
+ 
++#include "spdlog/spdlog.h"
++#include "spdlog/sinks/basic_file_sink.h"
++
++#define OBJ_LOG_D(...) \
++	if(this->_logger!=nullptr) SPDLOG_LOGGER_CALL(_logger, spdlog::level::debug,__VA_ARGS__);
++
+ namespace loam
+ {
+ 
+@@ -61,12 +67,18 @@ namespace loam
+   }
+ 
+ 
++  void LaserOdometry::_InitLogger(){
++	  this->_logger=spdlog::basic_logger_mt("logger_local","odo.log");
++	  this->_logger->set_level(spdlog::level::debug);
++	  OBJ_LOG_D("{}",1);
++  }
+   bool LaserOdometry::setup(ros::NodeHandle &node, ros::NodeHandle &privateNode)
+   {
+     // fetch laser odometry params
+     float fParam;
+     int iParam;
+ 
++	_InitLogger();
+     if (privateNode.getParam("scanPeriod", fParam))
+     {
+       if (fParam <= 0)
+@@ -301,6 +313,13 @@ namespace loam
+                                                                                -transformSum().rot_x.rad(),
+                                                                                -transformSum().rot_y.rad());
+ 
++	  OBJ_LOG_D("[{}.{}] roll: {}, pitch: {}, yaw: {}, ",
++_timeSurfPointsLessFlat.sec,
++_timeSurfPointsLessFlat.nsec,
++rad2deg(transformSum().rot_z.rad()),
++rad2deg(-transformSum().rot_x.rad()),
++rad2deg(-transformSum().rot_y.rad())
++			  );
+     _laserOdometryMsg.header.stamp            = _timeSurfPointsLessFlat;
+     _laserOdometryMsg.pose.pose.orientation.x = -geoQuat.y;
+     _laserOdometryMsg.pose.pose.orientation.y = -geoQuat.z;
+diff --git a/src/lib/MultiScanRegistration.cpp b/src/lib/MultiScanRegistration.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/lib/ScanRegistration.cpp b/src/lib/ScanRegistration.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/lib/TransformMaintenance.cpp b/src/lib/TransformMaintenance.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/lib/math_utils.h b/src/lib/math_utils.h
+old mode 100644
+new mode 100755
+diff --git a/src/multi_scan_registration_node.cpp b/src/multi_scan_registration_node.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/transform_maintenance_node.cpp b/src/transform_maintenance_node.cpp
+old mode 100644
+new mode 100755
+diff --git a/tests/loam.test.in b/tests/loam.test.in
+old mode 100644
+new mode 100755
