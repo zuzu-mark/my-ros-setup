@@ -55,7 +55,9 @@ EOF
 }
 
 run() {
-    docker run --rm -it --privileged --net=host --ipc=host \
+    #docker run --rm -it --privileged --net=host --ipc=host \
+
+    docker run --rm -it --privileged  --ipc=host \
         --device=/dev/dri:/dev/dri \
         -v $(pwd)/data:/root/data \
         -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=$DISPLAY \
