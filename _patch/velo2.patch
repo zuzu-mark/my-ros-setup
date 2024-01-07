@@ -1,0 +1,139 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f8d8b0f..97b9d82 100755
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -43,6 +43,9 @@ add_definitions( -march=native )
+ 
+ add_subdirectory(src/lib)
+ 
++add_executable(merge src/merge.cpp)
++target_link_libraries(merge ${catkin_LIBRARIES} ${PCL_LIBRARIES} loam )
++
+ #add_compile_options( -S -emit-llvm)
+ add_executable(multiScanRegistration src/multi_scan_registration_node.cpp)
+ target_link_libraries(multiScanRegistration ${catkin_LIBRARIES} ${PCL_LIBRARIES} loam )
+diff --git a/launch/loam_velodyne.launch b/launch/loam_velodyne.launch
+index dbda380..677d2e5 100755
+--- a/launch/loam_velodyne.launch
++++ b/launch/loam_velodyne.launch
+@@ -12,6 +12,9 @@
+     <remap from="/imu/data" to="/mavros/imu/data_raw" />
+   </node>
+ 
++  <node pkg="loam_velodyne" type="merge" name="merge" output="screen" respawn="true">
++  </node>
++
+   <node pkg="loam_velodyne" type="laserOdometry" name="laserOdometry" output="screen" respawn="true">
+     <param name="scanPeriod" value="$(arg scanPeriod)" />
+   </node>
+@@ -27,18 +30,18 @@
+     <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find loam_velodyne)/rviz_cfg/loam_velodyne.rviz" />
+   </group>
+ 
+-  <node pkg="pcl_ros" type="pointcloud_to_pcd" name="pointcloud_to_pcd" output="screen">
+-         <remap from="input" to="/velodyne_cloud_registered"/>
+-         <!-- prefix : set output folder path. without this, save pcd files in.ros folder. -->
+-         <param name="prefix" value="/tmp/pcd/" />
+-         <param name="binary" value="false" />
+-         <param name="compressed" value="false" />
+-   </node>
+-  <node pkg="pcl_ros" type="pointcloud_to_pcd" name="pointcloud_to_pcd2" output="screen">
+-         <remap from="input" to="/velodyne_points"/>
+-         <!-- prefix : set output folder path. without this, save pcd files in.ros folder. -->
+-         <param name="prefix" value="/tmp/pcd_velo/" />
+-         <param name="binary" value="false" />
+-         <param name="compressed" value="false" />
+-   </node>
++  <!-- <node pkg="pcl_ros" type="pointcloud_to_pcd" name="pointcloud_to_pcd" output="screen"> -->
++         <!-- <remap from="input" to="/velodyne_cloud_registered"/> -->
++         <!-- [> prefix : set output folder path. without this, save pcd files in.ros folder. <] -->
++         <!-- <param name="prefix" value="/tmp/pcd/" /> -->
++         <!-- <param name="binary" value="false" /> -->
++         <!-- <param name="compressed" value="false" /> -->
++   <!-- </node> -->
++  <!-- <node pkg="pcl_ros" type="pointcloud_to_pcd" name="pointcloud_to_pcd2" output="screen"> -->
++         <!-- <remap from="input" to="/velodyne_points"/> -->
++         <!-- [> prefix : set output folder path. without this, save pcd files in.ros folder. <] -->
++         <!-- <param name="prefix" value="/tmp/pcd_velo/" /> -->
++         <!-- <param name="binary" value="false" /> -->
++         <!-- <param name="compressed" value="false" /> -->
++   <!-- </node> -->
+ </launch>
+diff --git a/src/lib/MultiScanRegistration.cpp b/src/lib/MultiScanRegistration.cpp
+index cab36ce..f848b2d 100755
+--- a/src/lib/MultiScanRegistration.cpp
++++ b/src/lib/MultiScanRegistration.cpp
+@@ -156,15 +156,33 @@ void MultiScanRegistration::handleCloudMessage(const sensor_msgs::PointCloud2Con
+ }
+ 
+ 
+-
++// 
++// x->y
++// y->z
++// z->x
++
++// 
++// x->z
++// y->x
++// z->y
++//    point.x = laserCloudIn[i].y;
++//    point.y = laserCloudIn[i].z;
++//    point.z = laserCloudIn[i].x;
++#define __DISABLE_ROTATE_
+ void MultiScanRegistration::process(const pcl::PointCloud<pcl::PointXYZ>& laserCloudIn, const Time& scanTime)
+ {
+   size_t cloudSize = laserCloudIn.size();
+ 
+   // determine scan start and end orientations
++#ifndef __DISABLE_ROTATE_
+   float startOri = -std::atan2(laserCloudIn[0].y, laserCloudIn[0].x);
+   float endOri = -std::atan2(laserCloudIn[cloudSize - 1].y,
+                              laserCloudIn[cloudSize - 1].x) + 2 * float(M_PI);
++#else
++  float startOri = -std::atan2(laserCloudIn[0].x, laserCloudIn[0].z);
++  float endOri = -std::atan2(laserCloudIn[cloudSize - 1].x,
++                             laserCloudIn[cloudSize - 1].z) + 2 * float(M_PI);
++#endif
+   if (endOri - startOri > 3 * M_PI) {
+     endOri -= 2 * M_PI;
+   } else if (endOri - startOri < M_PI) {
+@@ -179,9 +197,15 @@ void MultiScanRegistration::process(const pcl::PointCloud<pcl::PointXYZ>& laserC
+ 
+   // extract valid points from input cloud
+   for (int i = 0; i < cloudSize; i++) {
++#ifndef __DISABLE_ROTATE_
+     point.x = laserCloudIn[i].y;
+     point.y = laserCloudIn[i].z;
+     point.z = laserCloudIn[i].x;
++#else
++    point.x = laserCloudIn[i].x;
++    point.y = laserCloudIn[i].y;
++    point.z = laserCloudIn[i].z;
++#endif
+ 
+     // skip NaN and INF valued points
+     if (!pcl_isfinite(point.x) ||
+@@ -196,14 +220,22 @@ void MultiScanRegistration::process(const pcl::PointCloud<pcl::PointXYZ>& laserC
+     }
+ 
+     // calculate vertical point angle and scan ID
++#ifndef __DISABLE_ROTATE_
+     float angle = std::atan(point.y / std::sqrt(point.x * point.x + point.z * point.z));
++#else
++    float angle = std::atan(point.z / std::sqrt(point.y * point.y + point.x * point.x));
++#endif
+     int scanID = _scanMapper.getRingForAngle(angle);
+     if (scanID >= _scanMapper.getNumberOfScanRings() || scanID < 0 ){
+       continue;
+     }
+ 
+     // calculate horizontal point angle
++#ifndef __DISABLE_ROTATE_
+     float ori = -std::atan2(point.x, point.z);
++#else
++    float ori = -std::atan2(point.y, point.x);
++#endif
+     if (!halfPassed) {
+       if (ori < startOri - M_PI / 2) {
+         ori += 2 * M_PI;
