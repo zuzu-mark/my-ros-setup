@@ -1,0 +1,205 @@
+diff --git a/include/loam_velodyne/LaserMapping.h b/include/loam_velodyne/LaserMapping.h
+index 998b569..904eb72 100755
+--- a/include/loam_velodyne/LaserMapping.h
++++ b/include/loam_velodyne/LaserMapping.h
+@@ -45,6 +45,7 @@
+ #include <tf/transform_broadcaster.h>
+ 
+ 
++#include <std_msgs/String.h>
+ #include "spdlog/spdlog.h"
+ 
+ namespace loam
+@@ -100,6 +101,8 @@ public:
+    /** \brief Try to process buffered data. */
+    void process();
+ 
++  void stdMsgHandler(
++      const std_msgs::String &mymsg);
+ 
+ protected:
+    /** \brief Reset flags, etc. */
+@@ -114,6 +117,7 @@ protected:
+ private:
+ 	std::shared_ptr<spdlog::logger> _logger;
+ 	void _InitLogger();
++      std_msgs::String _mymsg;
+ 
+    ros::Time _timeLaserCloudCornerLast;   ///< time of current last corner cloud
+    ros::Time _timeLaserCloudSurfLast;     ///< time of current last surface cloud
+@@ -134,11 +138,15 @@ private:
+    ros::Publisher _pubOdomAftMapped;         ///< mapping odometry publisher
+    tf::TransformBroadcaster _tfBroadcaster;  ///< mapping odometry transform broadcaster
+ 
++   ros::Publisher _pubRealTimeCloud;         ///< mapping odometry publisher
++
+    ros::Subscriber _subLaserCloudCornerLast;   ///< last corner cloud message subscriber
+    ros::Subscriber _subLaserCloudSurfLast;     ///< last surface cloud message subscriber
+    ros::Subscriber _subLaserCloudFullRes;      ///< full resolution cloud message subscriber
+    ros::Subscriber _subLaserOdometry;          ///< laser odometry message subscriber
+    ros::Subscriber _subImu;                    ///< IMU message subscriber
++
++  ros::Subscriber _std_msg;
+ };
+ 
+ } // end namespace loam
+diff --git a/launch/loam_velodyne.launch b/launch/loam_velodyne.launch
+index 5744c8c..ef40c68 100755
+--- a/launch/loam_velodyne.launch
++++ b/launch/loam_velodyne.launch
+@@ -30,17 +30,18 @@
+     <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find loam_velodyne)/rviz_cfg/loam_velodyne.rviz" />
+   </group>
+ 
+-  <!-- <node pkg="pcl_ros" type="pointcloud_to_pcd" name="pointcloud_to_pcd" output="screen"> -->
+-         <!-- <remap from="input" to="/velodyne_cloud_registered"/> -->
+-         <!-- [> prefix : set output folder path. without this, save pcd files in.ros folder. <] -->
+-         <!-- <param name="prefix" value="/tmp/pcd/" /> -->
+-         <!-- <param name="binary" value="false" /> -->
+-         <!-- <param name="compressed" value="false" /> -->
+-   <!-- </node> -->
+-  <node pkg="pcl_ros" type="pointcloud_to_pcd" name="pointcloud_to_pcd2" output="screen">
+-		 <remap from="input" to="/velodyne_points"/>
+-		 <param name="prefix" value="/tmp/pcd_velo/" />
++  <node pkg="pcl_ros" type="pointcloud_to_pcd" name="pointcloud_to_pcd" output="screen">
++		 <remap from="input" to="/real_time_cloud"/>
++		 <!-- <remap from="input" to="/velodyne_cloud_registered"/> -->
++		 <param name="prefix" value="/tmp/pcd/" />
+ 		 <param name="binary" value="false" />
+ 		 <param name="compressed" value="false" />
+    </node>
++
++  <!-- <node pkg="pcl_ros" type="pointcloud_to_pcd" name="pointcloud_to_pcd2" output="screen"> -->
++		 <!-- <remap from="input" to="/velodyne_points"/> -->
++		 <!-- <param name="prefix" value="/tmp/pcd_velo/" /> -->
++		 <!-- <param name="binary" value="false" /> -->
++		 <!-- <param name="compressed" value="false" /> -->
++   <!-- </node> -->
+ </launch>
+diff --git a/src/lib/LaserMapping.cpp b/src/lib/LaserMapping.cpp
+index 0acd93a..8aca532 100755
+--- a/src/lib/LaserMapping.cpp
++++ b/src/lib/LaserMapping.cpp
+@@ -169,6 +169,8 @@ bool LaserMapping::setup(ros::NodeHandle& node, ros::NodeHandle& privateNode)
+    _pubLaserCloudFullRes  = node.advertise<sensor_msgs::PointCloud2>("/velodyne_cloud_registered", 2);
+    _pubOdomAftMapped      = node.advertise<nav_msgs::Odometry>("/aft_mapped_to_init", 5);
+ 
++   _pubRealTimeCloud  = node.advertise<sensor_msgs::PointCloud2>("/real_time_cloud", 2);
++
+    // subscribe to laser odometry topics
+    _subLaserCloudCornerLast = node.subscribe<sensor_msgs::PointCloud2>
+       ("/laser_cloud_corner_last", 2, &LaserMapping::laserCloudCornerLastHandler, this);
+@@ -185,9 +187,20 @@ bool LaserMapping::setup(ros::NodeHandle& node, ros::NodeHandle& privateNode)
+    // subscribe to IMU topic
+    _subImu = node.subscribe<sensor_msgs::Imu>("/imu/data", 50, &LaserMapping::imuHandler, this);
+ 
++
++   //TODO
++    _std_msg = node.subscribe(
++        "/my_msg", 2, &LaserMapping::stdMsgHandler, this);
++
+    return true;
+ }
+ 
++  void LaserMapping::stdMsgHandler(
++      const std_msgs::String &mymsg){
++
++	   ROS_INFO("111subscribe: %s", mymsg.data.c_str());
++	   _mymsg=mymsg;
++  }
+ 
+ 
+ void LaserMapping::laserCloudCornerLastHandler(const sensor_msgs::PointCloud2ConstPtr& cornerPointsLastMsg)
+@@ -300,10 +313,28 @@ void LaserMapping::publishResult()
+ {
+    // publish new map cloud according to the input output ratio
+    if (hasFreshMap()) // publish new map cloud
++   {
++	  if( strcmp(_mymsg.data.c_str(),"abc")){
+       publishCloudMsg(_pubLaserCloudSurround, laserCloudSurroundDS(), _timeLaserOdometry, "/camera_init");
++   	}
++   }
+ 
+    // publish transformed full resolution input cloud
++#if 0
++   publishCloudMsg(_pubLaserCloudFullRes, laserCloud(), _timeLaserOdometry, "/camera_init");
++#else
++	  if( !strcmp(_mymsg.data.c_str(),"abc"))
++	  {
++	   ROS_INFO("abc: %lf,%lf,%lf",
++rad2deg(transformAftMapped().rot_z.rad()),
++rad2deg(transformAftMapped().rot_y.rad()),
++rad2deg(transformAftMapped().rot_x.rad())
++			   );
++      publishCloudMsg(_pubRealTimeCloud, laserCloud(), _timeLaserOdometry, "/camera_init");
++	  }else{
+    publishCloudMsg(_pubLaserCloudFullRes, laserCloud(), _timeLaserOdometry, "/camera_init");
++	  }
++#endif
+ 
+    // publish odometry after mapped transformations
+    geometry_msgs::Quaternion geoQuat = tf::createQuaternionMsgFromRollPitchYaw
+diff --git a/src/merge.cpp b/src/merge.cpp
+index a783204..1405f3f 100644
+--- a/src/merge.cpp
++++ b/src/merge.cpp
+@@ -5,6 +5,8 @@
+ #include <ros/ros.h>
+ #include <sensor_msgs/PointCloud2.h>
+ 
++#include <std_msgs/String.h>
++
+ class Merge {
+ public:
+   Merge(void);
+@@ -13,6 +15,9 @@ public:
+   void laserCloudFullResHandler(
+       const sensor_msgs::PointCloud2ConstPtr &laserCloudFullResMsg);
+ 
++  void stdMsgHandler(
++      const std_msgs::String &mymsg);
++
+   auto &laserCloud() { return _laserCloud; }
+   void spin(void);
+   void process(void);
+@@ -28,6 +33,11 @@ public:
+ private:
+   ros::Subscriber
+       _subLaserCloudFullRes; ///< full resolution cloud message subscriber
++
++  ros::Subscriber _std_msg;
++
++
++
+   pcl::PointCloud<pcl::PointXYZI>::Ptr _laserCloud; ///< full resolution cloud
+ 
+   ros::Time _timeLaserCloudFullRes; ///< time of current full resolution cloud
+@@ -41,13 +51,26 @@ private:
+ 
+ Merge::Merge(void)
+     : _laserCloud(new pcl::PointCloud<pcl::PointXYZI>()), _first(false),
+-      _toggle(false) {}
++      _toggle(false),
++       _newLaserCloudFullRes(false) {}
+ 
+ bool Merge::hasNewData() { return _newLaserCloudFullRes; }
+ 
++  void Merge::stdMsgHandler(
++      const std_msgs::String &mymsg){
++
++	   ROS_INFO("subscribe: %s", mymsg.data.c_str());
++  }
++
++
++
+ bool Merge::setup(ros::NodeHandle &node, ros::NodeHandle &privateNode) {
++    // _std_msg = node.subscribe(
++        // "/my_msg", 2, &Merge::stdMsgHandler, this);
++
+   _subLaserCloudFullRes = node.subscribe<sensor_msgs::PointCloud2>(
+-      "/velodyne_cloud_registered", 2, &Merge::laserCloudFullResHandler, this);
++      "/laser_cloud_surround", 2, &Merge::laserCloudFullResHandler, this);
++      //"/velodyne_cloud_registered", 2, &Merge::laserCloudFullResHandler, this);
+   return true;
+ }
+ 

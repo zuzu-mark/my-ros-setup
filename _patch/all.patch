@@ -1,0 +1,947 @@
+diff --git a/.gitignore b/.gitignore
+index a78dd20..1e2c443 100755
+--- a/.gitignore
++++ b/.gitignore
+@@ -10,3 +10,5 @@ cmake_install.cmake
+ Makefile
+ .idea
+ .vs
++
++spdlog/
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+old mode 100644
+new mode 100755
+index 7f6b833..97b9d82
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,6 +1,9 @@
+ cmake_minimum_required(VERSION 3.1.3)
+ project(loam_velodyne)
+ 
++#set(CMAKE_C_COMPILER "/usr/bin/clang" CACHE string "clang compiler" FORCE)
++#set(CMAKE_CXX_COMPILER "/usr/bin/clang++" CACHE string "clang++ compiler" FORCE)
++
+ find_package(catkin REQUIRED COMPONENTS
+   geometry_msgs
+   nav_msgs
+@@ -27,6 +30,9 @@ catkin_package(
+   LIBRARIES loam
+ )
+ 
++
++
++
+ ## Compile as C++14, supported in ROS Kinetic and newer
+ # set_property(TARGET invz_player PROPERTY CXX_STANDARD 17)
+ set(CMAKE_CXX_STANDARD 14)
+@@ -37,8 +43,20 @@ add_definitions( -march=native )
+ 
+ add_subdirectory(src/lib)
+ 
++add_executable(merge src/merge.cpp)
++target_link_libraries(merge ${catkin_LIBRARIES} ${PCL_LIBRARIES} loam )
++
++#add_compile_options( -S -emit-llvm)
+ add_executable(multiScanRegistration src/multi_scan_registration_node.cpp)
+ target_link_libraries(multiScanRegistration ${catkin_LIBRARIES} ${PCL_LIBRARIES} loam )
++###===
++#add_custom_command(TARGET multiScanRegistration PRE_BUILD COMMAND echo wanwan)
++#message(${CMAKE_CURRENT_SOURCE_DIR})
++#add_custom_command(TARGET multiScanRegistration PRE_BUILD 
++#	COMMAND clang++ -S -emit-llvm -I${EIGEN3_INCLUDE_DIR}
++#-I${PCL_INCLUDE_DIRS} -I${CMAKE_CURRENT_SOURCE_DIR}/include -I${catkin_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/src/multi_scan_registration_node.cpp -o - |
++#	opt -analyze -dot-callgraph )#--callgraph-dot-filename-prefix=test)
++###===
+ 
+ add_executable(laserOdometry src/laser_odometry_node.cpp)
+ target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} loam )
+@@ -63,7 +81,7 @@ if (CATKIN_ENABLE_TESTING)
+   add_rostest(${PROJECT_BINARY_DIR}/test/loam.test
+     DEPENDENCIES
+       ${PROJECT_NAME}_test_data
+-      multiScanRegistration
++	  multiScanRegistration
+       laserOdometry
+       laserMapping
+       transformMaintenance)
+diff --git a/LICENSE b/LICENSE
+old mode 100644
+new mode 100755
+diff --git a/README.md b/README.md
+old mode 100644
+new mode 100755
+diff --git a/capture.bmp b/capture.bmp
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/Angle.h b/include/loam_velodyne/Angle.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/BasicLaserMapping.h b/include/loam_velodyne/BasicLaserMapping.h
+old mode 100644
+new mode 100755
+index cf55efe..b5e8444
+--- a/include/loam_velodyne/BasicLaserMapping.h
++++ b/include/loam_velodyne/BasicLaserMapping.h
+@@ -40,6 +40,10 @@
+ #include <pcl/point_types.h>
+ #include <pcl/filters/voxel_grid.h>
+ 
++#include <ros/ros.h>
++#include "common.h"
++#include "spdlog/spdlog.h"
++
+ namespace loam
+ {
+ 
+@@ -127,6 +131,10 @@ private:
+    { return i + _laserCloudWidth * j + _laserCloudWidth * _laserCloudHeight * k; }
+ 
+ private:
++	std::shared_ptr<spdlog::logger> _logger;
++	void _InitLogger();
++   ros::Time _laserOdometryTimeRos;   ///< time of current last corner cloud
++
+    Time _laserOdometryTime;
+ 
+    float _scanPeriod;          ///< time per scan
+diff --git a/include/loam_velodyne/BasicLaserOdometry.h b/include/loam_velodyne/BasicLaserOdometry.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/BasicScanRegistration.h b/include/loam_velodyne/BasicScanRegistration.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/BasicTransformMaintenance.h b/include/loam_velodyne/BasicTransformMaintenance.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/CircularBuffer.h b/include/loam_velodyne/CircularBuffer.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/LaserMapping.h b/include/loam_velodyne/LaserMapping.h
+old mode 100644
+new mode 100755
+index 9ff4fd7..904eb72
+--- a/include/loam_velodyne/LaserMapping.h
++++ b/include/loam_velodyne/LaserMapping.h
+@@ -45,6 +45,8 @@
+ #include <tf/transform_broadcaster.h>
+ 
+ 
++#include <std_msgs/String.h>
++#include "spdlog/spdlog.h"
+ 
+ namespace loam
+ {
+@@ -99,6 +101,8 @@ public:
+    /** \brief Try to process buffered data. */
+    void process();
+ 
++  void stdMsgHandler(
++      const std_msgs::String &mymsg);
+ 
+ protected:
+    /** \brief Reset flags, etc. */
+@@ -111,6 +115,10 @@ protected:
+    void publishResult();
+ 
+ private:
++	std::shared_ptr<spdlog::logger> _logger;
++	void _InitLogger();
++      std_msgs::String _mymsg;
++
+    ros::Time _timeLaserCloudCornerLast;   ///< time of current last corner cloud
+    ros::Time _timeLaserCloudSurfLast;     ///< time of current last surface cloud
+    ros::Time _timeLaserCloudFullRes;      ///< time of current full resolution cloud
+@@ -130,11 +138,15 @@ private:
+    ros::Publisher _pubOdomAftMapped;         ///< mapping odometry publisher
+    tf::TransformBroadcaster _tfBroadcaster;  ///< mapping odometry transform broadcaster
+ 
++   ros::Publisher _pubRealTimeCloud;         ///< mapping odometry publisher
++
+    ros::Subscriber _subLaserCloudCornerLast;   ///< last corner cloud message subscriber
+    ros::Subscriber _subLaserCloudSurfLast;     ///< last surface cloud message subscriber
+    ros::Subscriber _subLaserCloudFullRes;      ///< full resolution cloud message subscriber
+    ros::Subscriber _subLaserOdometry;          ///< laser odometry message subscriber
+    ros::Subscriber _subImu;                    ///< IMU message subscriber
++
++  ros::Subscriber _std_msg;
+ };
+ 
+ } // end namespace loam
+diff --git a/include/loam_velodyne/LaserOdometry.h b/include/loam_velodyne/LaserOdometry.h
+old mode 100644
+new mode 100755
+index 7e4c6ec..06ec91b
+--- a/include/loam_velodyne/LaserOdometry.h
++++ b/include/loam_velodyne/LaserOdometry.h
+@@ -47,6 +47,8 @@
+ 
+ #include "BasicLaserOdometry.h"
+ 
++#include "spdlog/spdlog.h"
++
+ namespace loam
+ {
+ 
+@@ -120,6 +122,9 @@ namespace loam
+     void publishResult();
+ 
+   private:
++	std::shared_ptr<spdlog::logger> _logger;
++	void _InitLogger();
++
+     uint16_t _ioRatio;       ///< ratio of input to output frames
+ 
+     ros::Time _timeCornerPointsSharp;      ///< time of current sharp corner cloud
+diff --git a/include/loam_velodyne/MultiScanRegistration.h b/include/loam_velodyne/MultiScanRegistration.h
+old mode 100644
+new mode 100755
+index 6d2a5d2..b09f7b3
+--- a/include/loam_velodyne/MultiScanRegistration.h
++++ b/include/loam_velodyne/MultiScanRegistration.h
+@@ -80,7 +80,11 @@ public:
+   int getRingForAngle(const float& angle);
+ 
+   /** Multi scan mapper for Velodyne VLP-16 according to data sheet. */
++#if 0
++  static inline MultiScanMapper Velodyne_VLP_16() { return MultiScanMapper(-16, 15, 32); };
++#else
+   static inline MultiScanMapper Velodyne_VLP_16() { return MultiScanMapper(-15, 15, 16); };
++#endif
+ 
+   /** Multi scan mapper for Velodyne HDL-32 according to data sheet. */
+   static inline MultiScanMapper Velodyne_HDL_32() { return MultiScanMapper(-30.67f, 10.67f, 32); };
+diff --git a/include/loam_velodyne/ScanRegistration.h b/include/loam_velodyne/ScanRegistration.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/TransformMaintenance.h b/include/loam_velodyne/TransformMaintenance.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/Twist.h b/include/loam_velodyne/Twist.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/Vector3.h b/include/loam_velodyne/Vector3.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/common.h b/include/loam_velodyne/common.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/nanoflann_pcl.h b/include/loam_velodyne/nanoflann_pcl.h
+old mode 100644
+new mode 100755
+diff --git a/include/loam_velodyne/time_utils.h b/include/loam_velodyne/time_utils.h
+old mode 100644
+new mode 100755
+diff --git a/launch/hector_loam_velodyne.launch b/launch/hector_loam_velodyne.launch
+old mode 100644
+new mode 100755
+diff --git a/launch/loam_velodyne.launch b/launch/loam_velodyne.launch
+old mode 100644
+new mode 100755
+index 642c4bb..ef40c68
+--- a/launch/loam_velodyne.launch
++++ b/launch/loam_velodyne.launch
+@@ -1,13 +1,18 @@
+ <launch>
+ 
+-  <arg name="rviz" default="true" />
++  <arg name="rviz" default="false" />
+   <arg name="scanPeriod" default="0.1" />
+ 
+   <node pkg="loam_velodyne" type="multiScanRegistration" name="multiScanRegistration" output="screen">
+     <param name="lidar" value="VLP-16" /> <!-- options: VLP-16  HDL-32  HDL-64E -->
+     <param name="scanPeriod" value="$(arg scanPeriod)" />
+ 
+-    <remap from="/multi_scan_points" to="/velodyne_points" />
++   <remap from="/multi_scan_points" to="/velodyne_points" />
++
++    <!-- <remap from="/imu/data" to="/mavros/imu/data_raw" /> -->
++  </node>
++
++  <node pkg="loam_velodyne" type="merge" name="merge" output="screen" respawn="true">
+   </node>
+ 
+   <node pkg="loam_velodyne" type="laserOdometry" name="laserOdometry" output="screen" respawn="true">
+@@ -25,4 +30,18 @@
+     <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find loam_velodyne)/rviz_cfg/loam_velodyne.rviz" />
+   </group>
+ 
++  <node pkg="pcl_ros" type="pointcloud_to_pcd" name="pointcloud_to_pcd" output="screen">
++		 <remap from="input" to="/real_time_cloud"/>
++		 <!-- <remap from="input" to="/velodyne_cloud_registered"/> -->
++		 <param name="prefix" value="/tmp/pcd/" />
++		 <param name="binary" value="false" />
++		 <param name="compressed" value="false" />
++   </node>
++
++  <!-- <node pkg="pcl_ros" type="pointcloud_to_pcd" name="pointcloud_to_pcd2" output="screen"> -->
++		 <!-- <remap from="input" to="/velodyne_points"/> -->
++		 <!-- <param name="prefix" value="/tmp/pcd_velo/" /> -->
++		 <!-- <param name="binary" value="false" /> -->
++		 <!-- <param name="compressed" value="false" /> -->
++   <!-- </node> -->
+ </launch>
+diff --git a/package.xml b/package.xml
+old mode 100644
+new mode 100755
+diff --git a/rviz_cfg/loam_velodyne.rviz b/rviz_cfg/loam_velodyne.rviz
+old mode 100644
+new mode 100755
+diff --git a/src/laser_mapping_node.cpp b/src/laser_mapping_node.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/laser_odometry_node.cpp b/src/laser_odometry_node.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/lib/BasicLaserMapping.cpp b/src/lib/BasicLaserMapping.cpp
+old mode 100644
+new mode 100755
+index 8011c72..f4d0f9b
+--- a/src/lib/BasicLaserMapping.cpp
++++ b/src/lib/BasicLaserMapping.cpp
+@@ -38,6 +38,12 @@
+ #include <Eigen/Eigenvalues>
+ #include <Eigen/QR>
+ 
++#include "spdlog/spdlog.h"
++#include "spdlog/sinks/basic_file_sink.h"
++
++#define OBJ_LOG_D(...) \
++	if(this->_logger!=nullptr) SPDLOG_LOGGER_CALL(_logger, spdlog::level::debug,__VA_ARGS__);
++
+ namespace loam
+ {
+ 
+@@ -48,6 +54,11 @@ using std::atan2;
+ using std::pow;
+ 
+ 
++  void BasicLaserMapping::_InitLogger(){
++	  this->_logger=spdlog::basic_logger_mt("logger_local2","Bmap.log");
++	  this->_logger->set_level(spdlog::level::debug);
++	  OBJ_LOG_D("{}",1);
++  }
+ BasicLaserMapping::BasicLaserMapping(const float& scanPeriod, const size_t& maxIterations) :
+    _scanPeriod(scanPeriod),
+    _stackFrameNum(1),
+@@ -76,6 +87,8 @@ BasicLaserMapping::BasicLaserMapping(const float& scanPeriod, const size_t& maxI
+    _laserCloudCornerFromMap(new pcl::PointCloud<pcl::PointXYZI>()),
+    _laserCloudSurfFromMap(new pcl::PointCloud<pcl::PointXYZI>())
+ {
++  _InitLogger();
++
+    // initialize frame counter
+    _frameCount = _stackFrameNum - 1;
+    _mapFrameCount = _mapFrameNum - 1;
+@@ -112,6 +125,17 @@ void BasicLaserMapping::transformAssociateToMap()
+    float sbcz = _transformSum.rot_z.sin();
+    float cbcz = _transformSum.rot_z.cos();
+ 
++#if 1
++	  OBJ_LOG_D("[{}.{}] [sum] roll: {}, pitch: {}, yaw: {}, ",
++_laserOdometryTimeRos.sec,
++_laserOdometryTimeRos.nsec,
++rad2deg(_transformSum.rot_z.rad()),
++rad2deg(-_transformSum.rot_x.rad()),
++rad2deg(-_transformSum.rot_y.rad())
++			  );
++
++#endif
++
+    float sblx = _transformBefMapped.rot_x.sin();
+    float cblx = _transformBefMapped.rot_x.cos();
+    float sbly = _transformBefMapped.rot_y.sin();
+@@ -119,6 +143,16 @@ void BasicLaserMapping::transformAssociateToMap()
+    float sblz = _transformBefMapped.rot_z.sin();
+    float cblz = _transformBefMapped.rot_z.cos();
+ 
++#if 1
++	  OBJ_LOG_D("[{}.{}] [bef] roll: {}, pitch: {}, yaw: {}, ",
++_laserOdometryTimeRos.sec,
++_laserOdometryTimeRos.nsec,
++rad2deg(_transformBefMapped.rot_z.rad()),
++rad2deg(-_transformBefMapped.rot_x.rad()),
++rad2deg(-_transformBefMapped.rot_y.rad())
++			  );
++#endif
++
+    float salx = _transformAftMapped.rot_x.sin();
+    float calx = _transformAftMapped.rot_x.cos();
+    float saly = _transformAftMapped.rot_y.sin();
+@@ -126,6 +160,16 @@ void BasicLaserMapping::transformAssociateToMap()
+    float salz = _transformAftMapped.rot_z.sin();
+    float calz = _transformAftMapped.rot_z.cos();
+ 
++#if 1
++	  OBJ_LOG_D("[{}.{}] [aft] roll: {}, pitch: {}, yaw: {}, ",
++_laserOdometryTimeRos.sec,
++_laserOdometryTimeRos.nsec,
++rad2deg(_transformAftMapped.rot_z.rad()),
++rad2deg(-_transformAftMapped.rot_x.rad()),
++rad2deg(-_transformAftMapped.rot_y.rad())
++			  );
++#endif
++
+    float srx = -sbcx * (salx*sblx + calx * cblx*salz*sblz + calx * calz*cblx*cblz)
+       - cbcx * sbcy*(calx*calz*(cbly*sblz - cblz * sblx*sbly)
+                      - calx * salz*(cbly*cblz + sblx * sbly*sblz) + cblx * salx*sbly)
+@@ -164,6 +208,16 @@ void BasicLaserMapping::transformAssociateToMap()
+    Vector3 v = _transformIncre.pos;
+    rotateZXY(v, _transformTobeMapped.rot_z, _transformTobeMapped.rot_x, _transformTobeMapped.rot_y);
+    _transformTobeMapped.pos = _transformAftMapped.pos - v;
++
++#if 1
++	  OBJ_LOG_D("[{}.{}] [tob] roll: {}, pitch: {}, yaw: {}, ",
++_laserOdometryTimeRos.sec,
++_laserOdometryTimeRos.nsec,
++rad2deg(_transformTobeMapped.rot_z.rad()),
++rad2deg(-_transformTobeMapped.rot_x.rad()),
++rad2deg(-_transformTobeMapped.rot_y.rad())
++			  );
++#endif
+ }
+ 
+ 
+@@ -273,6 +327,7 @@ bool BasicLaserMapping::process(Time const& laserOdometryTime)
+    }
+    _frameCount = 0;
+    _laserOdometryTime = laserOdometryTime;
++   _laserOdometryTimeRos = toROSTime(laserOdometryTime);
+ 
+    pcl::PointXYZI pointSel;
+ 
+@@ -922,6 +977,16 @@ void BasicLaserMapping::optimizeTransformTobeMapped()
+          break;
+    }
+ 
++#if 1
++	  OBJ_LOG_D("[{}.{}] [tb2] roll: {}, pitch: {}, yaw: {}, ",
++_laserOdometryTimeRos.sec,
++_laserOdometryTimeRos.nsec,
++rad2deg(_transformTobeMapped.rot_z.rad()),
++rad2deg(-_transformTobeMapped.rot_x.rad()),
++rad2deg(-_transformTobeMapped.rot_y.rad())
++			  );
++#endif
++
+    transformUpdate();
+ }
+ 
+diff --git a/src/lib/BasicLaserOdometry.cpp b/src/lib/BasicLaserOdometry.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/lib/BasicScanRegistration.cpp b/src/lib/BasicScanRegistration.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/lib/BasicTransformMaintenance.cpp b/src/lib/BasicTransformMaintenance.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/lib/CMakeLists.txt b/src/lib/CMakeLists.txt
+old mode 100644
+new mode 100755
+diff --git a/src/lib/LaserMapping.cpp b/src/lib/LaserMapping.cpp
+old mode 100644
+new mode 100755
+index 4d2ef00..8aca532
+--- a/src/lib/LaserMapping.cpp
++++ b/src/lib/LaserMapping.cpp
+@@ -33,6 +33,13 @@
+ #include "loam_velodyne/LaserMapping.h"
+ #include "loam_velodyne/common.h"
+ 
++#include "spdlog/spdlog.h"
++#include "spdlog/sinks/basic_file_sink.h"
++#include "math_utils.h"
++
++#define OBJ_LOG_D(...) \
++	if(this->_logger!=nullptr) SPDLOG_LOGGER_CALL(_logger, spdlog::level::debug,__VA_ARGS__);
++	
+ namespace loam
+ {
+ 
+@@ -47,12 +54,18 @@ LaserMapping::LaserMapping(const float& scanPeriod, const size_t& maxIterations)
+ }
+ 
+ 
++  void LaserMapping::_InitLogger(){
++	  this->_logger=spdlog::basic_logger_mt("logger_local","map.log");
++	  this->_logger->set_level(spdlog::level::debug);
++	  OBJ_LOG_D("{}",1);
++  }
+ bool LaserMapping::setup(ros::NodeHandle& node, ros::NodeHandle& privateNode)
+ {
+    // fetch laser mapping params
+    float fParam;
+    int iParam;
+ 
++  _InitLogger();
+    if (privateNode.getParam("scanPeriod", fParam))
+    {
+       if (fParam <= 0)
+@@ -156,6 +169,8 @@ bool LaserMapping::setup(ros::NodeHandle& node, ros::NodeHandle& privateNode)
+    _pubLaserCloudFullRes  = node.advertise<sensor_msgs::PointCloud2>("/velodyne_cloud_registered", 2);
+    _pubOdomAftMapped      = node.advertise<nav_msgs::Odometry>("/aft_mapped_to_init", 5);
+ 
++   _pubRealTimeCloud  = node.advertise<sensor_msgs::PointCloud2>("/real_time_cloud", 2);
++
+    // subscribe to laser odometry topics
+    _subLaserCloudCornerLast = node.subscribe<sensor_msgs::PointCloud2>
+       ("/laser_cloud_corner_last", 2, &LaserMapping::laserCloudCornerLastHandler, this);
+@@ -172,9 +187,20 @@ bool LaserMapping::setup(ros::NodeHandle& node, ros::NodeHandle& privateNode)
+    // subscribe to IMU topic
+    _subImu = node.subscribe<sensor_msgs::Imu>("/imu/data", 50, &LaserMapping::imuHandler, this);
+ 
++
++   //TODO
++    _std_msg = node.subscribe(
++        "/my_msg", 2, &LaserMapping::stdMsgHandler, this);
++
+    return true;
+ }
+ 
++  void LaserMapping::stdMsgHandler(
++      const std_msgs::String &mymsg){
++
++	   ROS_INFO("111subscribe: %s", mymsg.data.c_str());
++	   _mymsg=mymsg;
++  }
+ 
+ 
+ void LaserMapping::laserCloudCornerLastHandler(const sensor_msgs::PointCloud2ConstPtr& cornerPointsLastMsg)
+@@ -209,6 +235,16 @@ void LaserMapping::laserOdometryHandler(const nav_msgs::Odometry::ConstPtr& lase
+    geometry_msgs::Quaternion geoQuat = laserOdometry->pose.pose.orientation;
+    tf::Matrix3x3(tf::Quaternion(geoQuat.z, -geoQuat.x, -geoQuat.y, geoQuat.w)).getRPY(roll, pitch, yaw);
+ 
++#if 1
++	  OBJ_LOG_D("[{}.{}] [input] roll: {}, pitch: {}, yaw: {}, ",
++_timeLaserOdometry.sec,
++_timeLaserOdometry.nsec,
++rad2deg(roll),
++rad2deg(pitch),
++rad2deg(yaw)
++			  );
++#endif
++
+    updateOdometry(-pitch, -yaw, roll,
+                   laserOdometry->pose.pose.position.x,
+                   laserOdometry->pose.pose.position.y,
+@@ -277,10 +313,28 @@ void LaserMapping::publishResult()
+ {
+    // publish new map cloud according to the input output ratio
+    if (hasFreshMap()) // publish new map cloud
++   {
++	  if( strcmp(_mymsg.data.c_str(),"abc")){
+       publishCloudMsg(_pubLaserCloudSurround, laserCloudSurroundDS(), _timeLaserOdometry, "/camera_init");
++   	}
++   }
+ 
+    // publish transformed full resolution input cloud
++#if 0
+    publishCloudMsg(_pubLaserCloudFullRes, laserCloud(), _timeLaserOdometry, "/camera_init");
++#else
++	  if( !strcmp(_mymsg.data.c_str(),"abc"))
++	  {
++	   ROS_INFO("abc: %lf,%lf,%lf",
++rad2deg(transformAftMapped().rot_z.rad()),
++rad2deg(transformAftMapped().rot_y.rad()),
++rad2deg(transformAftMapped().rot_x.rad())
++			   );
++      publishCloudMsg(_pubRealTimeCloud, laserCloud(), _timeLaserOdometry, "/camera_init");
++	  }else{
++   publishCloudMsg(_pubLaserCloudFullRes, laserCloud(), _timeLaserOdometry, "/camera_init");
++	  }
++#endif
+ 
+    // publish odometry after mapped transformations
+    geometry_msgs::Quaternion geoQuat = tf::createQuaternionMsgFromRollPitchYaw
+@@ -294,14 +348,44 @@ void LaserMapping::publishResult()
+    _odomAftMapped.pose.pose.position.x = transformAftMapped().pos.x();
+    _odomAftMapped.pose.pose.position.y = transformAftMapped().pos.y();
+    _odomAftMapped.pose.pose.position.z = transformAftMapped().pos.z();
++
++	  OBJ_LOG_D("[{}.{}] [aft-r] phi: {}, theta: {}, psi: {}, ",
++_timeLaserOdometry.sec,
++_timeLaserOdometry.nsec,
++rad2deg(transformAftMapped().rot_z.rad()),
++rad2deg(transformAftMapped().rot_y.rad()),
++rad2deg(transformAftMapped().rot_x.rad())
++			  );
++
++	  OBJ_LOG_D("[{}.{}] [aft-p] x: {}, y: {}, z: {}, ",
++_timeLaserOdometry.sec,
++_timeLaserOdometry.nsec,
++transformAftMapped().pos.x(),
++transformAftMapped().pos.y(),
++transformAftMapped().pos.z()
++			  );
++
+    _odomAftMapped.twist.twist.angular.x = transformBefMapped().rot_x.rad();
+    _odomAftMapped.twist.twist.angular.y = transformBefMapped().rot_y.rad();
+    _odomAftMapped.twist.twist.angular.z = transformBefMapped().rot_z.rad();
++
++#if 0
++	  OBJ_LOG_D("[{}.{}] [before] roll: {}, pitch: {}, yaw: {}, ",
++_timeLaserOdometry.sec,
++_timeLaserOdometry.nsec,
++rad2deg(transformAftMapped().rot_z.rad()),
++rad2deg(-transformAftMapped().rot_x.rad()),
++rad2deg(-transformAftMapped().rot_y.rad())
++			  );
++#endif
++
+    _odomAftMapped.twist.twist.linear.x = transformBefMapped().pos.x();
+    _odomAftMapped.twist.twist.linear.y = transformBefMapped().pos.y();
+    _odomAftMapped.twist.twist.linear.z = transformBefMapped().pos.z();
+    _pubOdomAftMapped.publish(_odomAftMapped);
+ 
++
++
+    _aftMappedTrans.stamp_ = _timeLaserOdometry;
+    _aftMappedTrans.setRotation(tf::Quaternion(-geoQuat.y, -geoQuat.z, geoQuat.x, geoQuat.w));
+    _aftMappedTrans.setOrigin(tf::Vector3(transformAftMapped().pos.x(),
+diff --git a/src/lib/LaserOdometry.cpp b/src/lib/LaserOdometry.cpp
+old mode 100644
+new mode 100755
+index d8ee0eb..6e2d1fb
+--- a/src/lib/LaserOdometry.cpp
++++ b/src/lib/LaserOdometry.cpp
+@@ -36,6 +36,12 @@
+ #include "loam_velodyne/common.h"
+ #include "math_utils.h"
+ 
++#include "spdlog/spdlog.h"
++#include "spdlog/sinks/basic_file_sink.h"
++
++#define OBJ_LOG_D(...) \
++	if(this->_logger!=nullptr) SPDLOG_LOGGER_CALL(_logger, spdlog::level::debug,__VA_ARGS__);
++
+ namespace loam
+ {
+ 
+@@ -61,12 +67,18 @@ namespace loam
+   }
+ 
+ 
++  void LaserOdometry::_InitLogger(){
++	  this->_logger=spdlog::basic_logger_mt("logger_local","odo.log");
++	  this->_logger->set_level(spdlog::level::debug);
++	  OBJ_LOG_D("{}",1);
++  }
+   bool LaserOdometry::setup(ros::NodeHandle &node, ros::NodeHandle &privateNode)
+   {
+     // fetch laser odometry params
+     float fParam;
+     int iParam;
+ 
++	_InitLogger();
+     if (privateNode.getParam("scanPeriod", fParam))
+     {
+       if (fParam <= 0)
+@@ -301,6 +313,14 @@ namespace loam
+                                                                                -transformSum().rot_x.rad(),
+                                                                                -transformSum().rot_y.rad());
+ 
++	  OBJ_LOG_D("[{}.{}] roll: {}, pitch: {}, yaw: {}, ",
++_timeSurfPointsLessFlat.sec,
++_timeSurfPointsLessFlat.nsec,
++rad2deg(transformSum().rot_x.rad()),
++rad2deg(transformSum().rot_y.rad()),
++rad2deg(transformSum().rot_z.rad())
++			  );
++
+     _laserOdometryMsg.header.stamp            = _timeSurfPointsLessFlat;
+     _laserOdometryMsg.pose.pose.orientation.x = -geoQuat.y;
+     _laserOdometryMsg.pose.pose.orientation.y = -geoQuat.z;
+diff --git a/src/lib/MultiScanRegistration.cpp b/src/lib/MultiScanRegistration.cpp
+old mode 100644
+new mode 100755
+index cab36ce..f848b2d
+--- a/src/lib/MultiScanRegistration.cpp
++++ b/src/lib/MultiScanRegistration.cpp
+@@ -156,15 +156,33 @@ void MultiScanRegistration::handleCloudMessage(const sensor_msgs::PointCloud2Con
+ }
+ 
+ 
+-
++// 
++// x->y
++// y->z
++// z->x
++
++// 
++// x->z
++// y->x
++// z->y
++//    point.x = laserCloudIn[i].y;
++//    point.y = laserCloudIn[i].z;
++//    point.z = laserCloudIn[i].x;
++#define __DISABLE_ROTATE_
+ void MultiScanRegistration::process(const pcl::PointCloud<pcl::PointXYZ>& laserCloudIn, const Time& scanTime)
+ {
+   size_t cloudSize = laserCloudIn.size();
+ 
+   // determine scan start and end orientations
++#ifndef __DISABLE_ROTATE_
+   float startOri = -std::atan2(laserCloudIn[0].y, laserCloudIn[0].x);
+   float endOri = -std::atan2(laserCloudIn[cloudSize - 1].y,
+                              laserCloudIn[cloudSize - 1].x) + 2 * float(M_PI);
++#else
++  float startOri = -std::atan2(laserCloudIn[0].x, laserCloudIn[0].z);
++  float endOri = -std::atan2(laserCloudIn[cloudSize - 1].x,
++                             laserCloudIn[cloudSize - 1].z) + 2 * float(M_PI);
++#endif
+   if (endOri - startOri > 3 * M_PI) {
+     endOri -= 2 * M_PI;
+   } else if (endOri - startOri < M_PI) {
+@@ -179,9 +197,15 @@ void MultiScanRegistration::process(const pcl::PointCloud<pcl::PointXYZ>& laserC
+ 
+   // extract valid points from input cloud
+   for (int i = 0; i < cloudSize; i++) {
++#ifndef __DISABLE_ROTATE_
+     point.x = laserCloudIn[i].y;
+     point.y = laserCloudIn[i].z;
+     point.z = laserCloudIn[i].x;
++#else
++    point.x = laserCloudIn[i].x;
++    point.y = laserCloudIn[i].y;
++    point.z = laserCloudIn[i].z;
++#endif
+ 
+     // skip NaN and INF valued points
+     if (!pcl_isfinite(point.x) ||
+@@ -196,14 +220,22 @@ void MultiScanRegistration::process(const pcl::PointCloud<pcl::PointXYZ>& laserC
+     }
+ 
+     // calculate vertical point angle and scan ID
++#ifndef __DISABLE_ROTATE_
+     float angle = std::atan(point.y / std::sqrt(point.x * point.x + point.z * point.z));
++#else
++    float angle = std::atan(point.z / std::sqrt(point.y * point.y + point.x * point.x));
++#endif
+     int scanID = _scanMapper.getRingForAngle(angle);
+     if (scanID >= _scanMapper.getNumberOfScanRings() || scanID < 0 ){
+       continue;
+     }
+ 
+     // calculate horizontal point angle
++#ifndef __DISABLE_ROTATE_
+     float ori = -std::atan2(point.x, point.z);
++#else
++    float ori = -std::atan2(point.y, point.x);
++#endif
+     if (!halfPassed) {
+       if (ori < startOri - M_PI / 2) {
+         ori += 2 * M_PI;
+diff --git a/src/lib/ScanRegistration.cpp b/src/lib/ScanRegistration.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/lib/TransformMaintenance.cpp b/src/lib/TransformMaintenance.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/lib/math_utils.h b/src/lib/math_utils.h
+old mode 100644
+new mode 100755
+diff --git a/src/merge.cpp b/src/merge.cpp
+new file mode 100644
+index 0000000..1405f3f
+--- /dev/null
++++ b/src/merge.cpp
+@@ -0,0 +1,190 @@
++#include <pcl/filters/filter.h>
++#include <pcl/point_cloud.h>
++#include <pcl/point_types.h>
++#include <pcl_conversions/pcl_conversions.h>
++#include <ros/ros.h>
++#include <sensor_msgs/PointCloud2.h>
++
++#include <std_msgs/String.h>
++
++class Merge {
++public:
++  Merge(void);
++
++  bool setup(ros::NodeHandle &node, ros::NodeHandle &privateNode);
++  void laserCloudFullResHandler(
++      const sensor_msgs::PointCloud2ConstPtr &laserCloudFullResMsg);
++
++  void stdMsgHandler(
++      const std_msgs::String &mymsg);
++
++  auto &laserCloud() { return _laserCloud; }
++  void spin(void);
++  void process(void);
++  void reset();
++  bool hasNewData();
++
++  void mergeCloud(pcl::PointCloud<pcl::PointXYZI> &cloud_merged);
++  void savePcdFile(const std::string &c_output_file_path,
++                   const pcl::PointCloud<pcl::PointXYZI> &c_cloud_output);
++
++  void MergePcd(const std::string &c_file_names);
++
++private:
++  ros::Subscriber
++      _subLaserCloudFullRes; ///< full resolution cloud message subscriber
++
++  ros::Subscriber _std_msg;
++
++
++
++  pcl::PointCloud<pcl::PointXYZI>::Ptr _laserCloud; ///< full resolution cloud
++
++  ros::Time _timeLaserCloudFullRes; ///< time of current full resolution cloud
++  bool _newLaserCloudFullRes; ///< flag if a new full resolution cloud has been
++                              ///< received
++
++  bool _first;
++  bool _toggle;
++  std::vector<pcl::PointCloud<pcl::PointXYZI>> _clouds;
++};
++
++Merge::Merge(void)
++    : _laserCloud(new pcl::PointCloud<pcl::PointXYZI>()), _first(false),
++      _toggle(false),
++       _newLaserCloudFullRes(false) {}
++
++bool Merge::hasNewData() { return _newLaserCloudFullRes; }
++
++  void Merge::stdMsgHandler(
++      const std_msgs::String &mymsg){
++
++	   ROS_INFO("subscribe: %s", mymsg.data.c_str());
++  }
++
++
++
++bool Merge::setup(ros::NodeHandle &node, ros::NodeHandle &privateNode) {
++    // _std_msg = node.subscribe(
++        // "/my_msg", 2, &Merge::stdMsgHandler, this);
++
++  _subLaserCloudFullRes = node.subscribe<sensor_msgs::PointCloud2>(
++      "/laser_cloud_surround", 2, &Merge::laserCloudFullResHandler, this);
++      //"/velodyne_cloud_registered", 2, &Merge::laserCloudFullResHandler, this);
++  return true;
++}
++
++void Merge::laserCloudFullResHandler(
++    const sensor_msgs::PointCloud2ConstPtr &laserCloudFullResMsg) {
++  _timeLaserCloudFullRes = laserCloudFullResMsg->header.stamp;
++
++  laserCloud()->clear();
++  pcl::fromROSMsg(*laserCloudFullResMsg, *laserCloud());
++  std::vector<int> indices;
++  pcl::removeNaNFromPointCloud(*laserCloud(), *laserCloud(), indices);
++  _newLaserCloudFullRes = true;
++}
++
++void Merge::mergeCloud(pcl::PointCloud<pcl::PointXYZI> &cloud_merged) {
++  for (auto &cloud : _clouds) {
++    if (&cloud - &_clouds[0] == 0)
++      cloud_merged = cloud;
++    cloud_merged += cloud;
++  }
++  return;
++}
++void Merge::MergePcd(const std::string &c_file_names) {
++#if 1
++  pcl::PointCloud<pcl::PointXYZI> c;
++  {
++    if (pcl::io::loadPCDFile(c_file_names, c) == -1) {
++      std::printf("shutdown...\n");
++      exit(0);
++    }
++    _clouds.push_back(c);
++  }
++#endif
++}
++
++void Merge::savePcdFile(const std::string &c_output_file_path,
++                        const pcl::PointCloud<pcl::PointXYZI> &c_cloud_output) {
++  try {
++    // pcl::io::savePCDFileBinary(c_output_file_path, c_cloud_output);
++    pcl::io::savePCDFileASCII(c_output_file_path, c_cloud_output);
++  } catch (const pcl::IOException &e) {
++    std::cerr << e.what() << '\n';
++    exit(0);
++  }
++  std::printf("save merged clouds to %s\n", c_output_file_path.c_str());
++  return;
++}
++void Merge::reset() { _newLaserCloudFullRes = false; }
++
++void Merge::process() {
++  if (!hasNewData()) {
++    return; // waiting for new data to arrive.
++  }
++  // ROS_INFO("cyc: %s", __FUNCTION__);
++
++  _clouds.push_back(*_laserCloud);
++#if 1
++  if (!_first) {
++    pcl::PointCloud<pcl::PointXYZI> cloud_merged;
++    mergeCloud(cloud_merged);
++    std::string path = "/tmp/pcd/a.pcd";
++    savePcdFile(path, cloud_merged);
++    _first = true;
++  } else {
++    pcl::PointCloud<pcl::PointXYZI> cloud_merged;
++
++    if (!_toggle) {
++      std::string in_path = "/tmp/pcd/a.pcd";
++      std::string path = "/tmp/pcd/b.pcd";
++
++      MergePcd(in_path);
++      mergeCloud(cloud_merged);
++      savePcdFile(path, cloud_merged);
++    } else {
++      std::string in_path = "/tmp/pcd/b.pcd";
++      std::string path = "/tmp/pcd/a.pcd";
++
++      MergePcd(in_path);
++      mergeCloud(cloud_merged);
++      savePcdFile(path, cloud_merged);
++    }
++    _toggle ^= 1;
++  }
++#endif
++  _clouds.clear();
++  reset(); // reset flags, etc.
++}
++
++void Merge::spin() {
++  ros::Rate rate(1);
++  bool status = ros::ok();
++
++  // loop until shutdown
++  while (status) {
++    ros::spinOnce();
++
++    // try processing new data
++    process();
++
++    status = ros::ok();
++    rate.sleep();
++  }
++}
++
++/** Main node entry point. */
++int main(int argc, char **argv) {
++  ros::init(argc, argv, "merge");
++  ros::NodeHandle node;
++  ros::NodeHandle privateNode("~");
++
++  Merge m;
++  if (m.setup(node, privateNode)) {
++    m.spin();
++  }
++
++  return 0;
++}
+diff --git a/src/multi_scan_registration_node.cpp b/src/multi_scan_registration_node.cpp
+old mode 100644
+new mode 100755
+diff --git a/src/transform_maintenance_node.cpp b/src/transform_maintenance_node.cpp
+old mode 100644
+new mode 100755
+diff --git a/tests/loam.test.in b/tests/loam.test.in
+old mode 100644
+new mode 100755
