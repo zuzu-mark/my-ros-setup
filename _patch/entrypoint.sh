@@ -38,3 +38,6 @@ sudo npm install -g roslib
 
 ####
 apt install ros-noetic-foxglove-bridge
+
+https://github.com/foxglove/ws-protocol
+roslaunch --screen foxglove_bridge foxglove_bridge.launch port:=8765
