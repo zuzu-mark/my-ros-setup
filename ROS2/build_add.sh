@@ -1,16 +1,19 @@
 #!/bin/bash
-
-funcBuild2() {
-
-    TARGET=entrypoint3.sh
-    cat <<EOF >assets/${TARGET}
+TARGET=entrypoint4.sh
+cat <<EOF >assets/${TARGET}
 #! /bin/bash
 
 
 \$(which sshd)
-bash "\$@"
+
+#sudo -u ubuntu "bash \$@"
+sudo -u ubuntu "terminator"
+#bash -c "\$@"
+
 EOF
-    chmod +x assets/${TARGET}
+chmod +x assets/${TARGET}
+
+funcBuild2() {
 
     cat <<EOF >Dockerfile2
 FROM myros2
@@ -34,8 +37,8 @@ RUN apt-get update && apt-get install -y \
 
 
 # entrypoint
-COPY assets/${TARGET} /
 COPY data/.tmux.conf /root/
+COPY assets/${TARGET} /
 ENTRYPOINT ["/${TARGET}"]
 EOF
 
@@ -99,7 +102,29 @@ RUN cd /root/ws/src && git clone -b humble-devel https://github.com/ROBOTIS-GIT/
 RUN cd /root/ws && /bin/bash -c "source /opt/ros/humble/setup.bash; colcon build --symlink-install"
 
 
-ENV TURTLEBOT3_MODEL=waffle_pi
+
+# Terminator Config
+RUN mkdir -p /home/ubuntu/.config/terminator/
+COPY assets/terminator_config /home/ubuntu/.config/terminator/config 
+COPY assets/terminator_background.png /root/.config/terminator/background.png
+
+RUN echo "source /usr/share/gazebo/setup.bash" >> /home/ubuntu/.bashrc
+
+
+
+RUN apt-get -y update && apt-get -y install python3-pip
+RUN pip3 install setuptools==58.2.0
+
+## entry
+#ENV TURTLEBOT3_MODEL=waffle_pi
+COPY data/.tmux.conf /home/ubuntu
+COPY assets/${TARGET} /
+
+RUN echo "export TURTLEBOT3_MODEL=burger" >> /root/.bashrc
+RUN echo "export TURTLEBOT3_MODEL=burger" >> /home/ubuntu/.bashrc
+RUN echo "source /usr/share/gazebo/setup.bash" >> /root/.bashrc
+ENTRYPOINT ["/${TARGET}"]
+
 EOF
 
 docker build $OPT -t myros2:custom2 -f Dockerfile3 .

@@ -24,3 +24,9 @@ sudo apt install ros-humble-turtlebot3 -y
 # Environment Configuration
 echo 'export ROS_DOMAIN_ID=30 #TURTLEBOT3' >> ~/.bashrc
 source ~/.bashrc
+
+
+#=============
+# execute command
+#ros2 launch turtlebot3_gazebo turtlebot3_house.launch.py
+#ros2 run turtlebot3_teleop teleop_keyboard

@@ -19,6 +19,9 @@ RUN echo "source /opt/ros/humble/setup.bash" >> /home/ubuntu/.bashrc
 #
 #
 #
+
+
+
 RUN apt-get update && apt-get install -y curl gnupg2 && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
 
 
@@ -29,3 +32,28 @@ RUN apt-get update && apt-get install -y  python3-colcon-common-extensions pytho
 RUN mkdir -p /root/ws/src
 RUN cd /root/ws/src && git clone -b humble-devel https://github.com/ROBOTIS-GIT/turtlebot3_simulations.git
 RUN cd /root/ws && /bin/bash -c "source /opt/ros/humble/setup.bash; colcon build --symlink-install"
+
+
+
+# Terminator Config
+RUN mkdir -p /home/ubuntu/.config/terminator/
+COPY assets/terminator_config /home/ubuntu/.config/terminator/config 
+COPY assets/terminator_background.png /root/.config/terminator/background.png
+
+RUN echo "source /usr/share/gazebo/setup.bash" >> /home/ubuntu/.bashrc
+
+
+
+RUN apt-get -y update && apt-get -y install python3-pip
+RUN pip3 install setuptools==58.2.0
+
+## entry
+#ENV TURTLEBOT3_MODEL=waffle_pi
+COPY data/.tmux.conf /home/ubuntu
+COPY assets/entrypoint4.sh /
+
+RUN echo "export TURTLEBOT3_MODEL=burger" >> /root/.bashrc
+RUN echo "export TURTLEBOT3_MODEL=burger" >> /home/ubuntu/.bashrc
+RUN echo "source /usr/share/gazebo/setup.bash" >> /root/.bashrc
+ENTRYPOINT ["/entrypoint4.sh"]
+
