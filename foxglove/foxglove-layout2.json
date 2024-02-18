@@ -1,0 +1,127 @@
+{
+  "configById": {
+    "RawMessages!19m90o7": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": ""
+    },
+    "3D!18i6zy7": {
+      "layers": {
+        "845139cb-26bc-40b3-8161-8ab60af4baf5": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "Grid",
+          "instanceId": "845139cb-26bc-40b3-8161-8ab60af4baf5",
+          "layerId": "foxglove.Grid",
+          "size": 10,
+          "divisions": 10,
+          "lineWidth": 1,
+          "color": "#248eff",
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "order": 1
+        }
+      },
+      "cameraState": {
+        "perspective": true,
+        "distance": 181.5160232574756,
+        "phi": 59.99999999999978,
+        "thetaOffset": -45.00000000000037,
+        "targetOffset": [
+          2.970544503318898,
+          1.111662069108414,
+          7.421458873234929e-17
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {
+        "/velodyne_points": {
+          "visible": true,
+          "colorField": "intensity",
+          "colorMode": "colormap",
+          "colorMap": "turbo"
+        },
+        "/velodyne_cloud_registered": {
+          "visible": true,
+          "colorField": "intensity",
+          "colorMode": "colormap",
+          "colorMap": "turbo"
+        }
+      },
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {}
+    },
+    "Publish!21iov91": {
+      "buttonText": "確定",
+      "buttonTooltip": "",
+      "advancedView": false,
+      "value": "{\n  \"data\": \"hell\"\n}",
+      "topicName": "/my_msg",
+      "datatype": "std_msgs/String",
+      "foxglovePanelTitle": "傾き"
+    },
+    "Publish!a4rqxb": {
+      "buttonText": "実行",
+      "buttonTooltip": "",
+      "advancedView": false,
+      "value": "{\n  \"data\": \"\"\n}",
+      "foxglovePanelTitle": "calibration",
+      "topicName": "/my_msg",
+      "datatype": "std_msgs/String"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": {
+    "direction": "row",
+    "first": "RawMessages!19m90o7",
+    "second": {
+      "first": "3D!18i6zy7",
+      "second": {
+        "first": "Publish!21iov91",
+        "second": "Publish!a4rqxb",
+        "direction": "row"
+      },
+      "direction": "column",
+      "splitPercentage": 75.68181818181819
+    },
+    "splitPercentage": 20.016820857863753
+  }
+}

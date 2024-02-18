@@ -18,6 +18,7 @@ pip3 install pyOpenSSL --upgrade
 
 ### https://tricknotes.hateblo.jp/entry/20120227/p1
 ### https://b.ueda.tech/?post=20220502_rosbridge
+roslaunch rosbridge_server rosbridge_websocket.launch
 ### exec
  #npm install -g ws
 
@@ -33,3 +34,7 @@ pip3 install pyOpenSSL --upgrade
 
 ###########################
 sudo npm install -g roslib
+
+
+####
+apt install ros-noetic-foxglove-bridge
